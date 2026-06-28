@@ -21,3 +21,20 @@ def get_recommendation(score):
 
     else:
         return "Revise fundamentals and repeat quizzes"
+
+
+def get_recommended_difficulty(score):
+    """
+    Map learning level to recommended quiz difficulty
+    
+    Returns: "easy", "medium", or "hard"
+    """
+    level = get_learning_level(score)
+    
+    difficulty_map = {
+        "Beginner": "easy",
+        "Intermediate": "medium",
+        "Advanced": "hard"
+    }
+    
+    return difficulty_map.get(level, "medium")

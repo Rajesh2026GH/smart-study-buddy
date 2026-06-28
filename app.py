@@ -147,9 +147,42 @@ def show_main_app():
             
             # Quiz Generation
             st.subheader("🎯 Generate Quiz")
+            
+            # Get recommended difficulty
+            recommended = "medium"
+            last_score = None
+            level = ""
+            try:
+                rec_response = requests.get(
+                    f"{API_BASE_URL}/recommended-difficulty",
+                    headers=get_headers()
+                )
+                if rec_response.status_code == 200:
+                    rec_data = rec_response.json()
+                    recommended = rec_data.get("difficulty", "medium")
+                    last_score = rec_data.get("last_score")
+                    level = rec_data.get("level", "")
+            except:
+                pass
+            
             col1, col2 = st.columns(2)
+            
             with col1:
-                difficulty = st.select_slider("Difficulty", ["easy", "medium", "hard"])
+                # Show recommended difficulty with visual emphasis
+                if last_score is not None:
+                    st.markdown(f"**Last Score:** {last_score}/100 | **Level:** {level}")
+                
+                # Pre-select recommended difficulty
+                difficulty_options = ["easy", "medium", "hard"]
+                default_index = difficulty_options.index(recommended) if recommended in difficulty_options else 1
+                
+                difficulty = st.select_slider(
+                    "Difficulty",
+                    difficulty_options,
+                    value=recommended,  # ← Pre-selected
+                    help=f"Recommended based on your recent performance"
+                )
+            
             with col2:
                 learning_style = st.selectbox("Learning Style", ["visual", "auditory", "kinesthetic"])
             
@@ -205,8 +238,6 @@ def show_main_app():
                 st.subheader("✅ Quiz Evaluation")
                 user_answers = st.text_area("Enter Your Answers")
                 topic = st.text_input("Topic")
-                weak_area = st.text_input("Area you struggled with")
-                score = st.slider("Your Score", 0, 100, 50)
                 
                 if st.button("Evaluate Answers"):
                     try:
@@ -217,18 +248,58 @@ def show_main_app():
                                 "topic": topic,
                                 "quiz": st.session_state["quiz"],
                                 "user_answers": user_answers,
-                                "score": score,
-                                "weak_area": weak_area
+                                "score": 0,  # Placeholder - auto-calculated by backend
+                                "weak_area": ""  # Placeholder - auto-extracted by backend
                             },
                             headers=get_headers()
                         )
                         if response.status_code == 200:
                             data = response.json()
-                            st.success("Evaluation Complete!")
-                            st.write("**Evaluation:**", data["evaluation"])
-                            st.info(f"**Level:** {data['learning_level']}")
-                            st.info(f"**Recommendation:** {data['recommendation']}")
-                            st.write("**Schedule:**", data["schedule"])
+                            
+                            if "error" in data:
+                                st.error(f"Evaluation Error: {data['error']}")
+                            else:
+                                st.success("Evaluation Complete!")
+                                
+                                # Display auto-extracted score prominently
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("Your Score", f"{data['score']}/100")
+                                with col2:
+                                    st.metric("Correct Answers", data['correct_answers'])
+                                with col3:
+                                    st.metric("Incorrect Answers", data['incorrect_answers'])
+                                
+                                # Display progress bar
+                                st.progress(data['score'] / 100)
+                                
+                                # Display feedback
+                                st.subheader("📝 Feedback")
+                                st.write(data["evaluation"])
+                                
+                                # Display weak areas (auto-extracted)
+                                if data.get('weak_areas'):
+                                    st.warning(f"**Areas to Improve:** {', '.join(data['weak_areas'])}")
+                                
+                                # Display question-by-question feedback
+                                if data.get('question_feedback'):
+                                    st.subheader("📋 Question Breakdown")
+                                    for qf in data['question_feedback']:
+                                        if qf['correct']:
+                                            st.success(f"✓ Q{qf['question_num']}: {qf['explanation']}")
+                                        else:
+                                            st.error(f"✗ Q{qf['question_num']}: {qf['explanation']}")
+                                
+                                # Display level and recommendation
+                                st.info(f"**Learning Level:** {data['learning_level']}")
+                                st.info(f"**Recommendation:** {data['recommendation']}")
+                                
+                                # Display schedule
+                                st.subheader("📅 Spaced Repetition Schedule")
+                                for item in data["schedule"]:
+                                    st.write(f"- **{item.get('topic', 'Review')}** → {item.get('revision_date', 'TBD')}")
+                                
+                                st.session_state["last_evaluation"] = data
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
     
@@ -248,6 +319,45 @@ def show_main_app():
                 col2.metric("Average Score", f"{dashboard['average_score']}%")
                 col3.metric("Study Streak", f"{dashboard['study_streak']} days")
                 col4.metric("Best Topic", dashboard["best_topic"] or "N/A")
+                
+                st.subheader("📅 Upcoming Reviews")
+                try:
+                    schedule_response = requests.get(
+                        f"{API_BASE_URL}/schedule/upcoming",
+                        headers=get_headers()
+                    )
+                    if schedule_response.status_code == 200:
+                        schedule_data = schedule_response.json()
+                        
+                        if schedule_data["overdue"]:
+                            st.warning(f"⚠️ You have {len(schedule_data['overdue'])} overdue reviews!")
+                            for item in schedule_data["overdue"]:
+                                col1, col2, col3 = st.columns([2, 1, 1])
+                                with col1:
+                                    st.write(f"📌 {item['topic']}")
+                                with col2:
+                                    st.write(f"⏰ {item['overdue_days']} days overdue")
+                                with col3:
+                                    if st.button("Start", key=f"overdue_{item['id']}"):
+                                        st.session_state["review_topic"] = item['topic']
+                                        st.write(f"Starting review of {item['topic']}...")
+                        
+                        if schedule_data["upcoming"]:
+                            st.info(f"✅ You have {len(schedule_data['upcoming'])} upcoming reviews")
+                            for item in schedule_data["upcoming"]:
+                                col1, col2, col3 = st.columns([2, 1, 1])
+                                with col1:
+                                    st.write(f"📌 {item['topic']}")
+                                with col2:
+                                    st.write(f"📅 {item['date']}")
+                                with col3:
+                                    if st.button("Review", key=f"upcoming_{item['id']}"):
+                                        st.session_state["review_topic"] = item['topic']
+                        else:
+                            st.success("No upcoming reviews scheduled!")
+                            
+                except Exception as e:
+                    st.error(f"Error loading schedule: {str(e)}")
                 
                 st.subheader("Recent Activity")
                 if dashboard["recent_activity"]:

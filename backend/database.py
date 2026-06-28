@@ -1,10 +1,16 @@
 import sqlite3
+import os
 from datetime import datetime
 
-conn = sqlite3.connect(
-    "database/studybuddy.db",
-    check_same_thread=False
-)
+# conn = sqlite3.connect(
+#     "smart-study-buddy/database/studybuddy.db",
+#     check_same_thread=False
+# )
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "..", "database", "studybuddy.db")
+
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 
 cursor = conn.cursor()
 
@@ -93,6 +99,26 @@ CREATE TABLE IF NOT EXISTS platform_integrations (
     connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id)
 )
+''')
+
+# Quiz schedules for spaced repetition
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS quiz_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    topic TEXT NOT NULL,
+    scheduled_date DATE NOT NULL,
+    completed BOOLEAN DEFAULT 0,
+    completed_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)
+''')
+
+# Index for faster queries
+cursor.execute('''
+CREATE INDEX IF NOT EXISTS idx_quiz_schedules_user_date 
+ON quiz_schedules(user_id, scheduled_date, completed)
 ''')
 
 conn.commit()
@@ -239,3 +265,96 @@ def get_user_integrations(user_id):
         (user_id,)
     )
     return cursor.fetchall()
+
+# ============ QUIZ SCHEDULE FUNCTIONS ============
+
+def save_study_schedule(user_id, topic, scheduled_dates):
+    """
+    Save spaced repetition schedule to database
+    
+    Args:
+        user_id: User ID
+        topic: Topic to review
+        scheduled_dates: List of dates to review (e.g., ["2024-07-01", "2024-07-03"])
+    """
+    for scheduled_date in scheduled_dates:
+        cursor.execute("""
+            INSERT INTO quiz_schedules (user_id, topic, scheduled_date)
+            VALUES (?, ?, ?)
+        """, (user_id, topic, scheduled_date))
+    
+    conn.commit()
+
+
+def get_upcoming_schedule(user_id, days_ahead=30):
+    """
+    Get upcoming scheduled reviews for user
+    
+    Returns list of dicts:
+    [
+        {"id": 1, "topic": "Photosynthesis", "date": "2024-07-01", "completed": False},
+    ]
+    """
+    from datetime import timedelta
+    today = datetime.now().date()
+    future_date = today + timedelta(days=days_ahead)
+    
+    cursor.execute("""
+        SELECT id, topic, scheduled_date, completed
+        FROM quiz_schedules
+        WHERE user_id = ?
+          AND scheduled_date >= ?
+          AND scheduled_date <= ?
+          AND completed = 0
+        ORDER BY scheduled_date ASC
+    """, (user_id, str(today), str(future_date)))
+    
+    rows = cursor.fetchall()
+    return [
+        {
+            "id": row[0],
+            "topic": row[1],
+            "date": row[2],
+            "completed": bool(row[3])
+        }
+        for row in rows
+    ]
+
+
+def get_overdue_schedule(user_id):
+    """Get reviews that should have been completed by now"""
+    today = datetime.now().date()
+    
+    cursor.execute("""
+        SELECT id, topic, scheduled_date
+        FROM quiz_schedules
+        WHERE user_id = ?
+          AND scheduled_date < ?
+          AND completed = 0
+        ORDER BY scheduled_date ASC
+    """, (user_id, str(today)))
+    
+    rows = cursor.fetchall()
+    result = []
+    for row in rows:
+        sched_date = datetime.strptime(row[2], "%Y-%m-%d").date()
+        overdue_days = (today - sched_date).days
+        result.append({
+            "id": row[0],
+            "topic": row[1],
+            "overdue_days": overdue_days
+        })
+    return result
+
+
+def mark_schedule_completed(schedule_id):
+    """Mark a schedule item as completed"""
+    today = datetime.now().date()
+    
+    cursor.execute("""
+        UPDATE quiz_schedules
+        SET completed = 1, completed_date = ?
+        WHERE id = ?
+    """, (str(today), schedule_id))
+    
+    conn.commit()

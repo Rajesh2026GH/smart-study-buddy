@@ -38,10 +38,19 @@ def fake_extract_concepts(text):
 
 def fake_evaluate_answers(quiz, user_answers):
     return {
+        # "score": 95,
+        # "correct_answers": "A, B, C, D",
+        # "weak_areas": "None",
+        # "improvement_suggestions": "Keep practicing."
+
+
         "score": 95,
-        "correct_answers": "A, B, C, D",
-        "weak_areas": "None",
-        "improvement_suggestions": "Keep practicing."
+        "correct_count": 3,
+        "incorrect_count": 1,
+        "total_questions": 4,
+        "feedback": "Good job!",
+        "question_feedback": [],
+        "weak_areas": ["AI basics"]
     }
 
 

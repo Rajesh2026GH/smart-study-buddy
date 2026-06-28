@@ -21,7 +21,7 @@ def seed_sample_users():
         {
             "username": "alice_smith",
             "email": "alice@studybuddy.com",
-            "password": "Alice123!",
+            "password": "Aliec123!",
             "learning_style": "visual",
             "daily_goal": 90
         },
@@ -94,13 +94,13 @@ def seed_sample_progress(user_ids):
     print("\n📊 Creating sample progress data...")
     
     sample_progress = [
-        {"user_id": user_ids[0], "topic": "Python Basics", "score": 85, "weak_area": "Recursion", "level": "Intermediate"},
-        {"user_id": user_ids[0], "topic": "Data Structures", "score": 92, "weak_area": "None", "level": "Advanced"},
-        {"user_id": user_ids[0], "topic": "Algorithms", "score": 78, "weak_area": "Sorting", "level": "Intermediate"},
+        {"user_id": user_ids[0], "topic": "Python Basics", "score": 45, "weak_area": "Recursion", "level": "Intermediate"},
+        {"user_id": user_ids[0], "topic": "Data Structures", "score": 32, "weak_area": "None", "level": "Advanced"},
+        {"user_id": user_ids[0], "topic": "Algorithms", "score": 38, "weak_area": "Sorting", "level": "Intermediate"},
         
-        {"user_id": user_ids[1], "topic": "Web Development", "score": 88, "weak_area": "CSS", "level": "Advanced"},
+        {"user_id": user_ids[1], "topic": "Web Development", "score": 68, "weak_area": "CSS", "level": "Advanced"},
         {"user_id": user_ids[1], "topic": "JavaScript", "score": 75, "weak_area": "Async/Await", "level": "Intermediate"},
-        {"user_id": user_ids[1], "topic": "React", "score": 82, "weak_area": "Hooks", "level": "Intermediate"},
+        {"user_id": user_ids[1], "topic": "React", "score": 62, "weak_area": "Hooks", "level": "Intermediate"},
         
         {"user_id": user_ids[2], "topic": "Machine Learning", "score": 91, "weak_area": "None", "level": "Advanced"},
         {"user_id": user_ids[2], "topic": "Deep Learning", "score": 87, "weak_area": "CNN Architecture", "level": "Advanced"},

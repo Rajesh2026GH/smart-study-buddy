@@ -9,9 +9,10 @@ from backend.evaluator import evaluate_answers
 from backend.database import (
     save_progress, fetch_progress, create_user, get_user_by_username,
     get_user_preference, set_user_preference, get_user_stats,
-    create_study_group, add_member_to_group, get_user_groups, get_group_notes
+    create_study_group, add_member_to_group, get_user_groups, get_group_notes,
+    save_study_schedule, get_upcoming_schedule, get_overdue_schedule, mark_schedule_completed
 )
-from backend.adaptive_learning import get_learning_level, get_recommendation
+from backend.adaptive_learning import get_learning_level, get_recommendation, get_recommended_difficulty
 from backend.scheduler import generate_personalized_schedule
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
 from backend.collaboration import create_new_group, invite_member, get_my_groups, share_note, get_group_info
@@ -201,16 +202,46 @@ def concept_api(request: ConceptRequest, user_id: int = Depends(get_user_id_from
 @app.post("/evaluate")
 def evaluate_api(request: EvaluationRequest, user_id: int = Depends(get_user_id_from_token)):
     """Evaluate quiz answers and save progress"""
-    result = evaluate_answers(request.quiz, request.user_answers)
-    level = get_learning_level(request.score)
-    recommendation = get_recommendation(request.score)
+    # Get evaluation from AI (now returns structured JSON)
+    evaluation = evaluate_answers(request.quiz, request.user_answers)
     
-    save_progress(request.user_id, request.topic, request.score, request.weak_area, level)
+    # Check for parsing error
+    if "error" in evaluation:
+        return {"error": evaluation["error"], "raw_response": evaluation.get("raw_response")}
     
-    schedule = generate_personalized_schedule([request.weak_area])
+    # Extract auto-calculated score from evaluation
+    score = evaluation["score"]  # ← AUTO-EXTRACTED instead of manual input
+    weak_areas = evaluation.get("weak_areas", [request.weak_area]) if request.weak_area else evaluation.get("weak_areas", ["General"])
+    
+    # Calculate learning level based on auto-extracted score
+    level = get_learning_level(score)
+    recommendation = get_recommendation(score)
+    
+    # Save progress with ACCURATE score (from AI, not user)
+    weak_area_str = weak_areas[0] if weak_areas else "General"
+    save_progress(user_id, request.topic, score, weak_area_str, level)
+    
+    # Generate schedule based on actual weak areas
+    # schedule = generate_personalized_schedule(weak_areas)
+    schedule = generate_personalized_schedule(
+        list(set(weak_areas + ([request.weak_area] if request.weak_area else [])))
+    )
+
+
+    # Save schedule to database for persistence
+    for weak_area in weak_areas:
+        schedule_dates = [item["revision_date"] for item in schedule if item.get("topic") == weak_area]
+        if schedule_dates:
+            save_study_schedule(user_id, weak_area, schedule_dates)
     
     return {
-        "evaluation": result,
+        "score": score,  # ← Return extracted score
+        "correct_answers": evaluation["correct_count"],
+        "incorrect_answers": evaluation["incorrect_count"],
+        "total_questions": evaluation["total_questions"],
+        "evaluation": evaluation["feedback"],
+        "question_feedback": evaluation.get("question_feedback", []),
+        "weak_areas": weak_areas,  # ← Auto-extracted
         "learning_level": level,
         "recommendation": recommendation,
         "schedule": schedule
@@ -229,6 +260,42 @@ def dashboard_api(user_id: int = Depends(get_user_id_from_token)):
     """Get user dashboard with comprehensive analytics"""
     dashboard = get_user_dashboard(user_id)
     return dashboard
+
+@app.get("/schedule/upcoming")
+def get_upcoming_schedule_api(user_id: int = Depends(get_user_id_from_token)):
+    """Get upcoming scheduled reviews"""
+    upcoming = get_upcoming_schedule(user_id)
+    overdue = get_overdue_schedule(user_id)
+    
+    return {
+        "upcoming": upcoming,
+        "overdue": overdue,
+        "total_pending": len(upcoming) + len(overdue)
+    }
+
+@app.post("/schedule/{schedule_id}/complete")
+def complete_schedule_api(schedule_id: int, user_id: int = Depends(get_user_id_from_token)):
+    """Mark a scheduled review as completed"""
+    mark_schedule_completed(schedule_id)
+    return {"message": "Schedule marked as completed"}
+
+@app.get("/recommended-difficulty")
+def get_recommended_difficulty_api(user_id: int = Depends(get_user_id_from_token)):
+    """Get recommended difficulty for next quiz based on last score"""
+    progress = fetch_progress(user_id)
+    
+    if not progress:
+        return {"difficulty": "easy", "reason": "No previous scores", "level": "Beginner", "last_score": None}
+    
+    last_score = int(progress[0][3])  # Most recent score
+    difficulty = get_recommended_difficulty(last_score)
+    level = get_learning_level(last_score)
+    
+    return {
+        "difficulty": difficulty,
+        "level": level,
+        "last_score": last_score
+    }
 
 @app.get("/stats/by-topic")
 def stats_by_topic(user_id: int = Depends(get_user_id_from_token)):
